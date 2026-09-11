@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/release-abandoned-slots",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/send-reminders",
+      "schedule": "0 14 * * *"
+    }
+  ]
+}

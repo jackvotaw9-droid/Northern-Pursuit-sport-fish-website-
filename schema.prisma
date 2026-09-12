@@ -1,0 +1,295 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Admin users
+// ─────────────────────────────────────────────
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(OWNER)
+  createdAt    DateTime @default(now())
+  actions      AdminAction[]
+}
+
+enum Role {
+  OWNER
+  STAFF
+}
+
+model AdminAction {
+  id        String    @id @default(cuid())
+  admin     AdminUser @relation(fields: [adminId], references: [id])
+  adminId   String
+  action    String
+  targetId  String?
+  meta      Json?
+  createdAt DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Charter packages (editable pricing/hours/capacity)
+// ─────────────────────────────────────────────
+model CharterPackage {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  name             String
+  boat             Boat     @relation(fields: [boatId], references: [id])
+  boatId           String
+  priceCents       Int
+  depositCents     Int      @default(15000) // $150 default deposit
+  durationLabel    String   // e.g. "6 hours" — editable, hours not always finalized
+  startTime        String?  // editable — some packages have TBD hours
+  endTime          String?
+  maxGuests         Int
+  region           String   // e.g. "Frankfort", "East/West Grand Traverse Bay"
+  targetSpecies    String
+  method           String
+  included         String[] // bullet list
+  bringList        String[]
+  seasonNote       String
+  active           Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  bookings         Booking[]
+  availabilities   AvailabilitySlot[]
+}
+
+model Boat {
+  id           String   @id @default(cuid())
+  name         String   // editable — exact Lund model TBD, don't invent specs
+  maxPassengers Int
+  description  String
+  photoUrl     String?  // null until real boat photos are supplied
+  packages     CharterPackage[]
+}
+
+// ─────────────────────────────────────────────
+// Calendar / availability
+// ─────────────────────────────────────────────
+model AvailabilitySlot {
+  id          String          @id @default(cuid())
+  date        DateTime        @db.Date
+  package     CharterPackage  @relation(fields: [packageId], references: [id])
+  packageId   String
+  isOpen      Boolean         @default(true)
+  isBlocked   Boolean         @default(false) // personal/weather block
+  blockReason String?
+  notes       String?
+  booking     Booking?
+
+  @@unique([date, packageId])
+}
+
+// ─────────────────────────────────────────────
+// Bookings
+// ─────────────────────────────────────────────
+model Booking {
+  id                String         @id @default(cuid())
+  confirmationCode  String         @unique // human-readable, e.g. NP-7F3K2
+  package           CharterPackage @relation(fields: [packageId], references: [id])
+  packageId         String
+  slot              AvailabilitySlot? @relation(fields: [slotId], references: [id])
+  slotId            String?        @unique
+  date              DateTime       @db.Date
+
+  status            BookingStatus  @default(PENDING_PAYMENT)
+
+  customerName      String
+  customerEmail     String
+  customerPhone     String
+  guestCount        Int
+  minorCount        Int            @default(0)
+  experienceLevel   String?
+  accessibilityNotes String?
+  allergyNotes      String?
+  emergencyContact  String?
+  specialRequests   String?
+
+  waiverAcceptedAt  DateTime?
+  policyAcceptedAt  DateTime?
+  marketingOptIn    Boolean        @default(false)
+
+  depositCents      Int
+  balanceCents      Int
+  gratuityCents     Int            @default(0)
+  balancePaidAt     DateTime?
+  balancePaymentMethod String?
+
+  launchLocation    String?        // set by captain, sent 3 days out
+  launchInstructions String?
+  launchMessageSentAt DateTime?
+  launchMessageApproved Boolean    @default(false)
+
+  stripeDepositIntentId String?    @unique
+  stripeCustomerId      String?
+
+  internalNotes     String?
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  payments          Payment[]
+  notifications     NotificationLog[]
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  COMPLETED
+  CANCELLED_CUSTOMER
+  CANCELLED_CAPTAIN
+  RESCHEDULED
+  NO_SHOW
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  booking         Booking  @relation(fields: [bookingId], references: [id])
+  bookingId       String
+  type            PaymentType
+  amountCents     Int
+  stripePaymentId String?  @unique
+  status          String
+  createdAt       DateTime @default(now())
+}
+
+enum PaymentType {
+  DEPOSIT
+  BALANCE
+  REFUND
+  PARTIAL_REFUND
+  GIFT_CARD
+}
+
+// Ensures Stripe webhook events are only ever processed once
+model ProcessedWebhookEvent {
+  id        String   @id // Stripe event id
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────
+model NotificationLog {
+  id         String   @id @default(cuid())
+  booking    Booking? @relation(fields: [bookingId], references: [id])
+  bookingId  String?
+  channel    String   // "email" | "sms"
+  template   String   // e.g. "three_day_launch", "confirmation"
+  to         String
+  status     String   // "sent" | "failed" | "pending_approval"
+  sentAt     DateTime?
+  createdAt  DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Fishing reports
+// ─────────────────────────────────────────────
+model FishingReport {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  author        String   @default("Captain Jack Votaw")
+  region        String
+  targetSpecies String[]
+  method        String?
+  conditions    String?
+  body          String
+  featuredImage String?
+  gallery       String[]
+  tags          String[]
+  seoTitle      String?
+  seoDescription String?
+  status        ContentStatus @default(DRAFT)
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// ─────────────────────────────────────────────
+// Gallery
+// ─────────────────────────────────────────────
+model GalleryImage {
+  id        String   @id @default(cuid())
+  url       String
+  altText   String
+  caption   String?
+  category  String   // "Lake Trout" | "Cisco" | "Salmon" | "River Fishing" | etc.
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Reviews — never fabricated, always admin-approved
+// ─────────────────────────────────────────────
+model Review {
+  id         String   @id @default(cuid())
+  name       String
+  rating     Int
+  tripType   String?
+  date       DateTime?
+  body       String
+  photoUrl   String?
+  approved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Gift cards
+// ─────────────────────────────────────────────
+model GiftCard {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  originalCents   Int
+  remainingCents  Int
+  buyerName       String
+  buyerEmail      String
+  recipientName   String
+  recipientEmail  String
+  message         String?
+  deliverAt       DateTime? // null = deliver immediately
+  deliveredAt     DateTime?
+  stripePaymentId String?   @unique
+  redeemed        Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Contact form submissions
+// ─────────────────────────────────────────────
+model ContactInquiry {
+  id             String   @id @default(cuid())
+  name           String
+  email          String
+  phone          String?
+  preferredDate  DateTime?
+  guestCount     Int?
+  preferredPackage String?
+  message        String
+  createdAt      DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Site content / settings (editable copy blocks, policies, banners)
+// ─────────────────────────────────────────────
+model SiteSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

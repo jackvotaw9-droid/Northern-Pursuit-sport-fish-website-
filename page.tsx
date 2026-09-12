@@ -1,37 +1,36 @@
 import { prisma } from "@/lib/prisma";
 
-export default async function AdminOverview() {
-  let stats = { upcoming: 0, deposits: 0, outstanding: 0, todaysTrips: 0 };
+export const metadata = { title: "Reviews" };
+
+export default async function ReviewsPage() {
+  let reviews: Awaited<ReturnType<typeof prisma.review.findMany>> = [];
   try {
-    const bookings = await prisma.booking.findMany({ where: { status: "CONFIRMED" } });
-    stats.upcoming = bookings.length;
-    stats.deposits = bookings.reduce((s, b) => s + b.depositCents, 0);
-    stats.outstanding = bookings.reduce((s, b) => s + (b.balancePaidAt ? 0 : b.balanceCents), 0);
+    reviews = await prisma.review.findMany({ where: { approved: true }, orderBy: { createdAt: "desc" } });
   } catch {
-    // No live database connected in this preview environment.
+    // No database connected in this environment/preview — render the empty state below.
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-display uppercase text-brand-900 mb-6">Overview</h1>
-      <div className="grid sm:grid-cols-4 gap-4">
-        <StatCard label="Upcoming Trips" value={stats.upcoming} />
-        <StatCard label="Deposits Received" value={`$${(stats.deposits / 100).toFixed(0)}`} />
-        <StatCard label="Outstanding Balances" value={`$${(stats.outstanding / 100).toFixed(0)}`} />
-        <StatCard label="Today's Trips" value={stats.todaysTrips} />
-      </div>
-      <p className="text-xs text-silver-dark mt-8">
-        Connect DATABASE_URL in .env and run `npm run db:seed` to see live numbers here.
-      </p>
-    </div>
-  );
-}
+    <div className="pt-32 section max-w-3xl">
+      <div className="eyebrow">Dock Talk</div>
+      <h1 className="text-4xl md:text-5xl mb-10">What Anglers Say</h1>
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="card p-5 bg-white">
-      <div className="text-3xl font-display text-brand-900">{value}</div>
-      <div className="text-xs uppercase text-silver-dark mt-1">{label}</div>
+      {reviews.length === 0 ? (
+        <div className="card p-8 text-center text-charcoal/60">
+          No reviews have been published yet. Real, verified reviews will appear here once Captain Jack
+          approves them from the admin dashboard — nothing here is ever fabricated.
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 gap-6">
+          {reviews.map((r) => (
+            <div key={r.id} className="card p-6">
+              <div className="text-brand-500 text-sm mb-2">{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</div>
+              <p className="text-sm text-charcoal/80">{r.body}</p>
+              <div className="text-xs uppercase text-silver-dark mt-4">{r.name}{r.tripType ? ` — ${r.tripType}` : ""}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,10 @@
+import type { MetadataRoute } from "next";
+import { pageUrl } from "../lib/seo";
+
+// Use only on the public production domain; staging environments should be noindex.
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: { userAgent: "*", allow: "/", disallow: ["/admin/", "/api/"] },
+    sitemap: pageUrl("/sitemap.xml")
+  };
+}
